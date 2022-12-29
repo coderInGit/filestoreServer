@@ -58,9 +58,46 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("FAILED"))
 		return
 	}
-	w.Write([]byte("http://" + r.Host + "/static/view/home.html"))
+	resp := util.RespMsg{
+		Code: 0,
+		Msg:  "OK",
+		Data: struct {
+			Location string
+			UserName string
+			Token    string
+		}{Location: "/home",
+			UserName: userName,
+			Token:    token,
+		},
+	}
+	w.Write(resp.JSONBytes())
 }
 
+func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	userName := r.Form.Get("username")
+	token := r.Form.Get("token")
+
+	isValidToken := IsTokenValid(token)
+	if !isValidToken {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	user, err := dbplayer.GetUserInfo(userName)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	resp := util.RespMsg{
+		Code: 0,
+		Msg:  "OK",
+		Data: user,
+	}
+	w.Write(resp.JSONBytes())
+}
+func IsTokenValid(token string) bool {
+	return true
+}
 func GenToken(username string) string {
 	ts := fmt.Sprintf("%x", time.Now().Unix())
 	tokenPrefix := util.MD5([]byte(username + ts + "_tokenSalt"))
