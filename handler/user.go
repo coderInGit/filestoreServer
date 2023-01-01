@@ -4,8 +4,8 @@ import (
 	dbplayer "filestoreServer/db"
 	"filestoreServer/util"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -16,7 +16,7 @@ const (
 // SignupHandler 处理用户注册请求
 func SignupHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		data, err := ioutil.ReadFile("./static/view/signup.html")
+		data, err := os.ReadFile("./static/view/signup.html")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -76,13 +76,13 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	userName := r.Form.Get("username")
-	token := r.Form.Get("token")
-
-	isValidToken := IsTokenValid(token)
-	if !isValidToken {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
+	//token := r.Form.Get("token")
+	//
+	//isValidToken := IsTokenValid(token)
+	//if !isValidToken {
+	//	w.WriteHeader(http.StatusForbidden)
+	//	return
+	//}
 	user, err := dbplayer.GetUserInfo(userName)
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -96,6 +96,9 @@ func UserInfoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(resp.JSONBytes())
 }
 func IsTokenValid(token string) bool {
+	if len(token) != 40 {
+		return false
+	}
 	return true
 }
 func GenToken(username string) string {

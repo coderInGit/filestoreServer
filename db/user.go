@@ -28,12 +28,12 @@ func UserSignup(userName string, password string) bool {
 // UserSignin 判断密码是否一致
 func UserSignin(userName string, password string) bool {
 	stmt, err := mydb.DBConn().Prepare(
-		"select * from tbl_user where user_name=? limit 1")
+		"select * from tbl_user where user_name=? and user_pwd =?  limit 1")
 	if err != nil {
 		fmt.Println(err.Error())
 		return false
 	}
-	rows, err := stmt.Query(userName)
+	rows, err := stmt.Query(userName, password)
 	if err != nil {
 		fmt.Println(err.Error())
 		return false

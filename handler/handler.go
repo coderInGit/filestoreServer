@@ -2,31 +2,34 @@ package handler
 
 import (
 	"encoding/json"
+	dbplayer "filestoreServer/db"
 	"filestoreServer/meta"
+	"filestoreServer/store/oss"
 	"filestoreServer/util"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
 func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		data, err := ioutil.ReadFile("./static/view/index.html")
+		data, err := os.ReadFile("./static/view/index.html")
 		if err != nil {
 			io.WriteString(w, "internal server error")
 			return
 		}
 		io.WriteString(w, string(data))
 	} else if r.Method == "POST" {
+		r.ParseForm()
 		file, head, err := r.FormFile("file")
 		if err != nil {
 			fmt.Printf("Failed to get data,err:%s\n", err.Error())
 		}
 		defer file.Close()
-
 		fileMeta := meta.FileMeta{
 			FileName: head.Filename,
 			Location: "/tmp/" + head.Filename,
@@ -46,9 +49,36 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		newFile.Seek(0, 0)
 		fileMeta.FileSha1 = util.FileSha1(newFile)
+
+		//同时将文件写入ceph存储
+		newFile.Seek(0, 0)
+		//data, _ := io.ReadAll(newFile)
+		//buket := ceph.GetCephBucket("userfile")
+		//cephPath := "/ceph/" + fileMeta.FileSha1
+		//buket.Put(cephPath, data, "octet-stream", s3.PublicRead)
+		//fileMeta.Location = cephPath
+
+		//写入oss存储
+		ossPath := "oss/" + fileMeta.FileSha1
+		err = oss.Buket().PutObject(ossPath, newFile)
+		if err != nil {
+			fmt.Printf(err.Error())
+			return
+		}
+		fileMeta.Location = ossPath
+
 		//meta.UpdateFileMeta(fileMeta)
 		meta.UpdateFileMetaDB(fileMeta)
-		http.Redirect(w, r, "upload/suc", http.StatusFound)
+
+		userName := r.Form.Get("username")
+		fmt.Println(userName)
+		suc := dbplayer.OnUserFileUploadFinished(userName, fileMeta.FileSha1, fileMeta.FileName, fileMeta.FileSize)
+		if suc {
+			http.Redirect(w, r, "/static/view/home.html", http.StatusFound)
+		} else {
+			w.Write([]byte("Upload Failed"))
+		}
+		//http.Redirect(w, r, "upload/suc", http.StatusFound)
 	}
 }
 
@@ -131,4 +161,61 @@ func FileDeleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	meta.RemoveFileMeta(fileSha1)
 	w.WriteHeader(http.StatusOK)
+}
+
+// FileQueryHandler 查询批量的文件元信息
+func FileQueryHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	limitCnt, _ := strconv.Atoi(r.Form.Get("limit"))
+	username := r.Form.Get("username")
+	userFiles, err := dbplayer.QueryUserFileMeta(username, limitCnt)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	data, err := json.Marshal(userFiles)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Write(data)
+}
+
+func TryFastUploadHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	userName := r.Form.Get("username")
+	fileHash := r.Form.Get("filehash")
+	fileName := r.Form.Get("filename")
+	fileSize, _ := strconv.ParseInt(r.Form.Get("filesize"), 10, 64)
+
+	fileMeta, err := meta.GetFileMetaDB(fileHash)
+	if err != nil {
+		fmt.Printf(err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if fileMeta == nil {
+		resp := util.RespMsg{
+			Code: -1,
+			Msg:  "秒传失败，请访问普通上传接口",
+		}
+		w.Write(resp.JSONBytes())
+		return
+	}
+	suc := dbplayer.OnUserFileUploadFinished(userName, fileHash, fileName, fileSize)
+	if suc {
+		resp := util.RespMsg{
+			Code: 0,
+			Msg:  "秒传失败",
+		}
+		w.Write(resp.JSONBytes())
+		return
+	} else {
+		resp := util.RespMsg{
+			Code: -2,
+			Msg:  "秒传失败，请稍后重试",
+		}
+		w.Write(resp.JSONBytes())
+		return
+	}
 }
